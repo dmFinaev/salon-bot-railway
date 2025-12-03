@@ -3,12 +3,21 @@ from telebot import types
 import json
 import datetime
 import os
+import time
 
-# Токен берем из переменных окружения (безопаснее!)
-TOKEN = os.environ.get('BOT_TOKEN', 'ВАШ_ТОКЕН_ЗДЕСЬ')
+# Токен из переменных окружения Railway
+TOKEN = os.environ.get('BOT_TOKEN')
+if not TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не установлен!")
+    print("⚙️ Установите в Railway Dashboard → Variables")
+    exit(1)
+
 bot = telebot.TeleBot(TOKEN)
 
-# Хранилище данных
+# Файл для хранения данных (в Railway файловая система временная)
+DATA_FILE = "clients.json"
+
+# Хранилище данных в памяти (на Railway нельзя полагаться на файлы)
 clients_data = {}
 user_states = {}
 
@@ -73,7 +82,18 @@ def get_service(message):
     clients_data[chat_id]["service"] = message.text
     
     client = clients_data[chat_id]
-    save_to_file(chat_id, client)
+    
+    # Сохраняем в файл (в Railway файлы временные, но для логов ок)
+    try:
+        with open(DATA_FILE, "a", encoding="utf-8") as f:
+            record = {
+                "chat_id": chat_id,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "client": client
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except:
+        pass  # В Railway файловая система может быть read-only
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = types.KeyboardButton("📅 Записать клиента")
@@ -90,50 +110,37 @@ def get_service(message):
                     parse_mode='Markdown',
                     reply_markup=markup)
     
+    # Очищаем
     user_states.pop(chat_id, None)
     clients_data.pop(chat_id, None)
-
-# Функция сохранения
-def save_to_file(chat_id, client):
-    try:
-        with open("clients.json", "a", encoding="utf-8") as f:
-            record = {
-                "chat_id": chat_id,
-                "timestamp": datetime.datetime.now().isoformat(),
-                "client": client
-            }
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception as e:
-        print(f"Ошибка сохранения: {e}")
 
 # Просмотр записей
 @bot.message_handler(func=lambda message: message.text == "👥 Сегодняшние записи")
 def today_clients(message):
     try:
-        with open("clients.json", "r", encoding="utf-8") as f:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
         if not lines:
             bot.send_message(message.chat.id, "📝 Пока нет записей")
             return
             
-        records = [json.loads(line) for line in lines]
         today = datetime.datetime.now().strftime("%d.%m")
-        today_records = []
+        response = f"📋 *Записи на сегодня ({today}):*\n\n"
         
-        for record in records:
-            client_date = record["client"]["date"]
-            if today in client_date:
-                today_records.append(record["client"])
+        for i, line in enumerate(lines[-10:], 1):  # Последние 10 записей
+            try:
+                record = json.loads(line)
+                if today in record["client"]["date"]:
+                    client = record["client"]
+                    response += f"{i}. *{client['name']}*\n"
+                    response += f"   📞 {client['phone']}\n"
+                    response += f"   ⏰ {client['date']}\n"
+                    response += f"   💇 {client['service']}\n\n"
+            except:
+                continue
         
-        if today_records:
-            response = f"📋 *Записи на сегодня ({today}):*\n\n"
-            for i, client in enumerate(today_records, 1):
-                response += f"{i}. *{client['name']}*\n"
-                response += f"   📞 {client['phone']}\n"
-                response += f"   ⏰ {client['date']}\n"
-                response += f"   💇 {client['service']}\n\n"
-        else:
+        if response == f"📋 *Записи на сегодня ({today}):*\n\n":
             response = f"📝 На сегодня ({today}) записей нет"
             
         bot.send_message(message.chat.id, response, parse_mode='Markdown')
@@ -141,6 +148,17 @@ def today_clients(message):
     except FileNotFoundError:
         bot.send_message(message.chat.id, "📝 Пока нет записей")
 
-# Запуск бота
-print("🔧 Бот запущен на PythonAnywhere!")
-bot.infinity_polling()
+# Запуск с обработкой ошибок
+if __name__ == "__main__":
+    print("🚂 Бот запускается на Railway...")
+    print(f"🤖 Токен: {'Установлен' if TOKEN else 'НЕ УСТАНОВЛЕН!'}")
+    
+    # Бесконечный цикл с перезапуском при ошибках
+    while True:
+        try:
+            print("🔄 Запускаем polling...")
+            bot.polling(none_stop=True, interval=0, timeout=30)
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            print("🔄 Перезапуск через 5 секунд...")
+            time.sleep(5)

@@ -1,6 +1,5 @@
-clients.json
+gitignore
 __pycache__/
 *.pyc
 .env
-*.log
-venv/
+clients.json
