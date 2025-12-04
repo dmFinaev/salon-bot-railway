@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+clients.json
+reminders_sent.json
+*.log
+venv/
